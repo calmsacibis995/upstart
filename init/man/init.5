@@ -1,0 +1,1423 @@
+.TH init 5 2014-05-09 "Upstart"
+.\"
+.SH NAME
+init \- Upstart init daemon job configuration
+.\"
+.SH SYNOPSIS
+.TP
+.B /etc/init/
+Default location of system job configuration files.
+.\"
+.TP
+.B $XDG_CONFIG_HOME/upstart/, $XDG_CONFIG_DIRS/upstart/
+Default locations of user session job configuration files.
+.\"
+.TP
+.B $HOME/.init/
+Deprecated location of user job configuration files (still
+honoured by User Session Mode).
+.\"
+.SH DESCRIPTION
+On startup, the Upstart
+.BR init (8)
+daemon reads its job configuration from files in the
+.I /etc/init/
+directory by default, and watches for future changes to these files using
+.BR inotify (7).
+
+If Upstart was invoked as a user process with \-\-user option, it will
+run in User Session mode. See
+.B User Session Mode
+for further details.
+
+To be considered by Upstart, files in this directory must have a
+recognized suffix and may also be present in sub\-directories.  There are
+two recognized suffixes:
+
+.IP \(bu 4 
+Files ending in
+.I .conf
+are called configuration files, or simply "conf files" for short.
+These are the primary vehicle for specifying a job.
+.IP \(bu 4 
+Files ending in
+.I .override
+are called override files.  If an override file is present, the stanzas
+it contains take precedence over those equivalently named stanzas in the
+corresponding configuration file contents for a particular job.
+The main use for override files is to modify how a job will run without
+having to modify its configuration file directly.  See the section
+\fBOverride File Handling\fP below for further details.
+.P
+A job can thus be defined by either:
+.IP \[bu] 2
+A single configuration file.
+.IP \[bu]
+A single configuration file \fBand\fP a single override file.
+.P
+Unless explicitly stated otherwise, any reference to a jobs
+configuration can refer both to a configuration file or an override
+file.
+
+Each configuration file defines the template for a single \fIservice\fP
+(long-running process or daemon) or \fItask\fP (short-lived process).
+
+Note that a configuration file is not itself a job: it is a description
+of an environment a job could be run in.  A job is the runtime embodiment
+of a configuration file.
+
+The configuration file name as displayed by Upstart and associated
+tooling is taken from its relative path within the directory without the
+extension.  For example a configuration file
+.I /etc/init/rc-sysinit.conf
+is named
+.IR rc\-sysinit ,
+while a configuration file
+.I /etc/init/net/apache.conf
+is named
+.IR net/apache .
+Since override files only modify the way a configuration file is
+interpreted, they are not named.
+
+Configuration files are plain text and should not be executable.
+.\"
+.SS Chroot Support
+
+Upstart is able to manage jobs within a \fBchroot\fP(2). To control jobs
+within the chroot environment, use the standard
+.BR initctl (8)
+facility. Note that it is not necessary to install D\-Bus within the
+chroot (in fact it is not recommended).
+
+Note that this facility is distinct from the \fBchroot\fR stanza (see
+.B Process environment
+below).
+
+.\"
+.SS User Session Mode
+
+Upstart can manage complete User Sessions. In this mode it runs with a
+process id greater than 1 and will read job configuration files from the
+following list of directories in the order shown:
+
+.IP \(bu 4
+.I $XDG_CONFIG_HOME/upstart/
+.IP \(bu 4
+.I $HOME/.init/
+.IP \(bu 4
+.I $XDG_CONFIG_DIRS/upstart/
+.IP \(bu 4
+.I /usr/share/upstart/sessions/
+.P
+
+Note that the first directory to contain a job is considered the owner
+of that job name: any subsequently searched directory that contains a
+job of the same name will be ignored. The same applies for override
+files: only the first override file found in the search order will be
+applied. Note that an override file can be in the same directory or
+earlier to that directory which contains the job file.
+
+Jobs in these locations are expected to launch the user's session.
+Upstart will try to parent all spawned process with the aid of
+.BR prctl (2) "" .
+If successful this will ensure that even double-forking daemons will be
+reparented to the User Session process, and not to the
+.BR init (8)
+daemon running with process id 1.
+
+When running in User Session mode, Upstart will kill all job processes
+on session logout or shutdown.
+
+All log output will be in
+.I $XDG_CACHE_HOME/upstart
+which defaults to
+.I $HOME/.cache/upstart
+.
+
+.\"
+.SS Configuration File Format
+Each line begins with a configuration stanza and continues until either
+the end of the line or a line containing a closing stanza.  Line breaks
+within a stanza are permitted within single or double quotes, or if
+preceded by a blackslash.
+
+If a stanza is duplicated, the last occurence will be used. Unrecognized
+stanzas will generate parse errors, which will stop a job from running.
+
+Stanzas and their arguments are delimited by whitespace, which consists
+of one or more space or tab characters which are otherwise ignored unless
+placed within single or double quotes.
+
+Comments begin with a `#' and continue until the end of the line.  Blank
+lines and lines consisting only of whitespace or comments are ignored.
+.\"
+.SS Process definition
+The primary use of jobs is to define services or tasks to be run by the
+.BR init (8)
+daemon.  Each job may have one or more different processes run as part
+of its lifecycle, with the most common known as the main process.
+
+The main process is defined using either the
+.B exec
+or
+.B script
+stanzas, only one of which is permitted.  These specify the executable
+or shell script that will be run when the job is considered to be running.
+Once this process terminates, the job stops.
+
+All processes are run with the full job environment available as
+environment variables in their process.
+
+.TP
+.B exec \fICOMMAND \fR[ \fIARG \fR]...
+This stanza defines the process to be run as the name of an executable
+on the filesystem, and zero or more arguments to be passed to it.  Any
+special characters, e.g. quotes or `$' specified will result in the
+entire command being passed to a shell for expansion.
+
+.nf
+exec /usr/sbin/acpid \-c $EVENTSDIR \-s $SOCKET
+.fi
+.\"
+.TP
+.B script \fR... \fBend script
+This stanza defines the process to be run as a shell script that will
+be executed using
+.BR sh(1).
+The
+.I \-e
+shell option is always used, so any command that fails will terminate
+the script.
+
+The
+.B script
+stanza appears on its own on a line, the script is everything up until
+the first
+.B end script
+stanza appearing on its own on a line.
+
+.nf
+script
+    dd bs=1 if=/proc/kmsg of=$KMSGSINK
+    exec /sbin/klogd \-P $KMSGSINK
+end script
+.fi
+
+.PP
+There are an additional four processes that may be run as part of the job's
+lifecycle.  These are specified as the process name, followed by an
+.B exec
+or
+.B script
+stanza.
+
+.TP
+.B pre\-start exec\fR|\fBscript\fR...
+This process will be run after the job's
+.BR starting (7)
+event has finished, but before the main process is run.  It is typically
+used to prepare the environment, such as making necessary directories,
+and it may also call the
+.BR stop (8)
+command without arguments to cancel the start.
+.\"
+.TP
+.B post\-start exec\fR|\fBscript\fR...
+This process will be run before the job's
+.BR started (7)
+event is emitted, but after the main process has been spawned.  It is
+typically used to send necessary commands to the main process, or to
+delay the
+.BR started (7)
+event until the main process is ready to receive clients.
+.\"
+.TP
+.B pre\-stop exec\fR|\fBscript\fR...
+This process is run if the job is stopped by an event listed in its
+.B stop on
+stanza or by the
+.BR stop (8)
+command.  It will be run before the job's
+.BR stopping (7)
+event is emitted and before the main process is killed.  It is typically
+used to send any necessary shutdown commands to the main process, and it
+may also call the
+.BR start (8)
+command without arguments to cancel the stop.
+.\"
+.TP
+.B post\-stop exec\fR|\fBscript\fR...
+This process is run after the main process has been killed and before
+the job's
+.BR stopped (7)
+event is emitted.  It is typically used to clean up the environment,
+such as removing temporary directories.
+
+.PP
+All of these processes, including the main process, are optional.
+Services without a main process will appear to be running until they are
+stopped: this is commonly used to define states such as runlevels.  It
+is permissible to have no main process, but to have
+.B pre\-start
+and
+.B post\-stop
+processes for the state.
+
+.RS
+.nf
+pre\-start exec ifup \-a
+post\-stop exec ifdown \-a
+.fi
+.RE
+.\"
+.SS Event definition
+Jobs can be manually started and stopped at any time by a system administrator
+using the
+.BR start (8)
+and
+.BR stop (8)
+tools, however it is far more useful for jobs to be started and stopped
+automatically by the
+.BR init (8)
+daemon when necessary.
+
+This is done by specifying which events should cause your job to be
+started, and which cause your process to be stopped again.
+
+The set of possible events is limitless, however there are a number of
+standard events defined by the
+.BR init (8)
+daemon and
+.BR telinit (8)
+tools that you will want to use.
+
+When first started, the
+.BR init (8)
+daemon will emit the
+.BR startup (7)
+event.  This will activate jobs that implement System V compatibility and
+the
+.BR runlevel (7)
+event.  As jobs are started and stopped, the
+.BR init (8)
+daemon will emit the
+.BR starting (7),
+.BR started (7),
+.BR stopping (7)
+and
+.BR stopped (7)
+events on their behalf.
+
+.TP
+.B start on \fIEVENT \fR[[\fIKEY=\fR]\fIVALUE\fR]... [\fBand\fR|\fBor\fR...]
+The
+.B start on
+stanza defines the set of events that will cause the job to be automatically
+started.  Each
+.I EVENT
+is given by its name.  Multiple events are permitted using the
+.B and
+&
+.B or
+logical operators, and complex expressions may be performed with
+parentheses (within which line breaks are permitted).
+
+You may also match on the environment variables contained within the event
+by specifying the
+.I KEY
+and expected
+.IR VALUE .
+If you know the order in which the variables are given to the event you may
+omit the
+.IR KEY .
+
+.I VALUE
+may contain wildcard matches and globs as permitted by
+.BR fnmatch (3)
+and may expand the value of any variable defined with the
+.B env
+stanza.
+
+Negation is permitted by using
+.I !=
+between the
+.I KEY
+and
+.IR VALUE .
+
+If an event is emitted for which no jobs have registered interest
+(via either
+.B start on
+or
+.BR "stop on" "),"
+the event is destroyed.
+
+If a job specifies a single event in its start condition and that event
+is emitted and matches any specifies event environment variables, the
+overall condition becomes true, the job is started and -- assuming no
+other job has registered an interest in it -- the event is destroyed.
+
+However, if an event is emitted which matches
+.I part
+of a jobs start condition, the job is said to be blocking the event
+(since the event is unable to change state until the job has started)
+and will both cause the event to persist and the job start condition to
+be marked as partially completed. Once all events in the start condition
+have been emitted, the overall job start condition becomes true and the
+job will be started. If no other jobs have registered interest in the
+events in the start condition, they will then be destroyed.
+
+Note that no job processes are started until the overall expression
+evaluates to true.
+
+Note that if a new job is created which specifies that it starts on one
+or more events
+.IR "that have already been destroyed" ","
+that job will not start automatically until those events are emitted
+again. Depending on the event, this may not happen until the next time
+the system is booted.
+
+Although complex expressions are supported, it should be possible
+to specify the start condition for the majority of jobs with very
+simple expressions (between one and four events as a very approximate
+guide). A large number or complex combination of events is often
+an indication that the condition should be refactored.
+
+Examples of
+.B start on
+conditions:
+
+.nf
+start on started gdm or started kdm
+
+start on stopped JOB=foo RESULT=failed PROCESS=pre-start
+
+start on device\-added SUBSYSTEM=tty DEVPATH=ttyS*
+
+start on net\-device\-added INTERFACE!=lo
+
+start on (A and B C=D and E F=G)
+.fi
+
+.TP
+.B stop on \fIEVENT \fR[[\fIKEY=\fR]\fIVALUE\fR]... [\fBand\fR|\fBor\fR...]
+The
+.\"
+.B stop on
+stanza defines the set of events that will cause the job to be automatically
+stopped.  It has the same syntax as
+\fBstart on\fP.
+
+.I VALUE
+may additionally expand the value of any variable that came from the
+job's start environment (either the event or the command that started it).
+
+Examples of
+.B stop on
+conditions:
+
+.nf
+stop on A
+
+stop on starting B and stopped JOB=C
+
+stop on stopping gdm or stopping kdm
+
+stop on device\-removed DEVPATH=$DEVPATH
+.fi
+
+.TP
+.B manual
+This stanza will disregard any
+.I previously seen
+.B start on
+definition.  By adding this stanza on any line below the
+.B start on
+definition, it provides the ability to stop a job from being
+automatically started.  When specified, the only way to start such a job
+is via \fBstart\fP (8).
+
+.SS Job environment
+Each job is run with an environment constructed from the
+following categories:
+.\"
+.IP \(bu 4
+A minimal set of standard system variables added by Upstart.
+.sp 1
+All jobs contain the
+.B TERM
+and
+.B PATH
+variables.
+.\"
+.IP \(bu 4
+Variables set using the 
+.BR initctl (8)
+job environment commands (such as \fIset-env\fP).
+.sp 1
+These commands also allow unsetting of variables.
+.\"
+.IP \(bu 4
+A set of special variables added by Upstart that relate to the job itself.
+.sp 1
+All jobs also contain the
+.B UPSTART_JOB
+and
+.B UPSTART_INSTANCE
+environment variables, containing the name of the job and instance.  These
+are mostly used by the
+.BR initctl (8)
+utility to default to acting on the job the commands are called from.
+.\"
+.IP \(bu 4
+Those variables introduced by the events or command that started the
+job.
+.sp 1
+The special
+.B UPSTART_EVENTS
+environment variable contains the list of events that started the job,
+it will not be present if the job was started manually.
+
+The
+.B pre\-stop
+and
+.B post\-stop
+scripts are run with the environment of the events or commands that
+stopped the job.  The
+.B UPSTART_STOP_EVENTS
+environment variable contains the list of events that stopped the job,
+it will not be present if the job was stopped manually.
+.\"
+.IP \(bu 4
+Variables set within the job itself using the
+.B env
+and
+.B export
+stanzas. These provide default values - if the command or event which causes the
+job to start specifies alternative values, those are given priority over
+the defaults.
+.RS
+.\"
+.TP
+.B env \fIKEY\fR[=\fIVALUE\fR]
+Defines a default environment variable, the value of which may be overridden
+by the event or command that starts the job.
+If \'KEY=VALUE\' is specified, the variable KEY is given the value VALUE.
+If only \'KEY\' is given, then the value is taken from the
+.BR init (8)
+daemon's own environment.
+.\"
+.TP
+.B export \fIKEY\fR...
+Exports the value of one or more environment variables into the
+.BR starting (7),
+.BR started (7),
+.BR stopping (7)
+and
+.BR stopped (7)
+events for this job
+.ft B
+and to all resultant events
+.ft
+(not just those relating to the current job).
+
+Note that each
+.I KEY
+is the
+.I name
+of a variable; it is
+.B not
+prefixed with a dollar (\(aq$\(aq) sign.
+.RE
+
+The first two categories above comprise the
+.I job environment table
+which is applied to all jobs. Note that changing the job environment
+table will only affect newly-started jobs.
+.\"
+.SS Services, tasks and respawning
+Jobs are
+.I services
+by default.  This means that the act of starting the job is considered
+to be finished when the job is running, and that even exiting with a
+zero exit status means the service will be respawned.
+
+.TP
+.B task
+This stanza may be used to specify that the job is a
+.I task
+instead.  This means that the act of starting the job is not considered
+to be finished until the job itself has been run and stopped again, but
+that exiting with a zero exit status means the task has completed
+successfully and will not be respawned.
+
+.PP
+The
+.BR start (8)
+command, and any
+.BR starting (7)
+or
+.BR stopping (7)
+events will block only until a service is running or until a task has
+finished.
+
+.TP
+.B respawn
+A service or task with this stanza will be automatically started if it
+should stop abnormally.  All reasons for a service stopping, except
+the
+.BR stop (8)
+command itself, are considered abnormal.  Tasks may exit with a zero
+exit status to prevent being respawned.
+Note that specifying this stanza
+.I without also specifying
+the
+.B respawn limit
+stanza will apply the default respawn limit as specified below.
+.\"
+.TP
+.B respawn limit \fR[\fICOUNT INTERVAL\fR|\fIunlimited\fR]
+Respawning is subject to a limit, if the job is respawned more than
+.I COUNT
+times in
+.I INTERVAL
+seconds, it will be considered to be having deeper problems and will
+be stopped. Default COUNT is 10. Default INTERVAL is 5 seconds.
+
+If the special argument
+.I unlimited
+is specified instead of a
+.I COUNT
+and
+.I INTERVAL
+value, no limit will be applied and the job will be
+respawned indefinitely. Specifying either
+.I COUNT
+or
+.I INTERVAL
+as zero implies
+.IR unlimited "."
+
+This stanza only applies to automatic respawns and not the
+.BR restart (8)
+command.
+.\"
+.TP
+.B normal exit \fISTATUS\fR|\fISIGNAL\fR...
+Additional exit statuses or even signals may be added, if the job
+process terminates with any of these it will not be considered to have
+failed and will not be respawned. A signal can be specified either
+as a full name (for example "\fISIGTERM\fP") or a partial name
+(for example "\fITERM\fP").
+
+.nf
+normal exit 0 1 TERM SIGHUP
+.fi
+.\"
+.SS Instances
+By default, only one instance of any job is permitted to exist at one
+time.  Attempting to start a job when it's already starting or running
+results in an error. Note that a job is considered to be running if its
+pre\-start process is running.
+
+Multiple instances may be permitted by defining the names of those
+instances.  If an instance with the same name is not already starting
+or running, a new instance will be started instead of returning an
+error.
+
+.TP
+.B instance \fINAME
+This stanza defines the names of instances, on its own its not particularly
+useful since it would just define the name of the single permitted instance,
+however
+.I NAME
+expands any variable defined in the job's environment.
+
+These will often be variables that you need to pass to the process anyway,
+so are an excellent way to limit the instances.
+
+.nf
+instance $CONFFILE
+exec /sbin/httpd \-c $CONFFILE
+.fi
+
+.nf
+instance $TTY
+exec /sbin/getty \-8 38300 $TTY
+.fi
+
+These jobs appear in the
+.BR initctl (8)
+output with the instance name in parentheses, and have the
+.B INSTANCE
+environment variable set in their events.
+.\"
+.SS Documentation
+Upstart provides several stanzas useful for documentation and external
+tools.
+
+.TP
+.B description \fIDESCRIPTION
+This stanza may contain a description of the job.
+
+.nf
+description "This does neat stuff"
+.fi
+.\"
+.TP
+.B author \fIAUTHOR
+This stanza may contain the author of the job, often used as a contact
+for bug reports.
+
+.nf
+author "Scott James Remnant <scott@netsplit.com>"
+.fi
+.\"
+.TP
+.B version \fIVERSION
+This stanza may contain version information about the job, such as revision
+control or package version number.  It is not used or interpreted by
+.BR init (8)
+in any way.
+
+.nf
+version "$Id$"
+.fi
+.\"
+.TP
+.B emits \fIEVENT\fR...
+All processes on the system are free to emit their own events by using the
+.BR initctl (8)
+tool, or by communicating directly with the
+.BR init (8)
+daemon.
+
+This stanza allows a job to document in its job configuration what events
+it emits itself, and may be useful for graphing possible transitions.
+
+The
+.BR initctl "(8) " check\-config
+command attempts to use this stanza to resolve events.
+
+.I EVENT
+can be either a literal string or a string including shell
+wildcard meta-characters (asterisk (\(aq*\(aq), question mark
+(\(aq?\(aq), and square brackets (\(aq[\(aq and \(aq]\(aq)).
+Meta-characters are useful to allow
+.BR initctl "(8) " check\-config
+to resolve a class of events, such as those emitted by
+.BR upstart-udev-bridge (8) "" .
+
+.\"
+.TP
+.B usage \fIUSAGE
+This stanza may contain the text used by
+.BR initctl "(8) " usage
+command. This text may be also shown when commands
+.BR start (8),
+.BR stop (8)
+or
+.BR status (8)
+fail.
+
+.nf
+usage "tty DEV=ttyX - where X is console id"
+.fi
+.\"
+.SS Process environment
+Many common adjustments to the process environment, such as resource
+limits, may be configured directly in the job rather than having to handle
+them yourself.
+
+.TP
+.B console \fBnone\fR|\fBlog\fR|\fBoutput\fR|\fBowner\fR
+.\"
+.RS
+.B none
+.RS
+If \fBnone\fR is specified, the jobs standard input, standard output
+and standard error file descriptors are connected to
+.IR /dev/null "."
+Any output generated by a job will be discarded.
+This used to be the default prior to the introduction of \fBlog\fR in
+Upstart 1.4.
+.RE
+.RE
+.sp 1
+.\"
+.RS
+.B log
+.RS
+.B
+If \fBlog\fR is specified, standard input is connected
+to
+.IR /dev/null ","
+and standard output and standard error are connected to a pseudo-tty
+which logs all job output.
+
+Output is logged to file
+.IR /var/log/upstart/<job-log-file>
+or
+.IR $XDG_CACHE_HOME/upstart/<job-log-file>
+for system and user session jobs respectively.
+
+If a job has specified \fBinstance\fR,
+.I <job-log-file>
+will equate to
+.I <job>-<instance>.log
+where \(aq<instance>\(aq is replaced by the specific instance value and
+\(aq<job>\(aq is replaced with the job name (job configuration file
+name, without the extension).  If \fBinstance\fR is not specified,
+.I <job-log-file>
+will be
+.I <job>.log
+where \(aq<job>\(aq is replaced with the job name.
+
+Jobs started from within a chroot will have their output logged to such
+a path within the chroot.
+
+If log files already exist, they are appended to.
+
+All slash (\(aq/\(aq) characters in
+.I <job-log-file>
+are replaced with underscore (\(aq_\(aq) characters. For example,
+any output from the \(aqwibble\(aq instance of the \(aqfoo/bar\(aq job
+would be encoded in file \(aqfoo_bar-wibble.log\(aq in the log file
+directory. This gives the log file directory a flat structure.
+
+If the directory for system jobs does not exist, job output for each job
+will be cached until the job finishes. Thus, the boot process
+.B must
+ensure that the directory is available as soon as possible since any job
+that finishes before a writeable disk is available will not be able to
+take advantage of this facility.
+
+If it is not possible to write to any log file due to lack of disk
+space, the job will be considered to have specified a
+.B console
+value of
+.BR none
+and all subsequent job output will be discarded.
+
+If the logger detects that the file it is about to write to was deleted,
+it will re-open the file first.
+
+Care should be taken if the log directory is a mount point since any job
+that starts before that mount is available and which produces output will
+then attempt to write logs to the mount point, not to the mounted
+directory. This may give the impression that log data has not been
+recorded. A strategy to handle this situation is to ensure the mount
+point directory is not writeable such that logs will only be written
+when the mount has succeeded (assuming the mount itself is writeable and
+has sufficient space).
+
+Note that since
+.B log
+utilizes pseudo-ttys, your kernel must support these. If it does not,
+the console value will be modified automatically to
+.BR none "."
+Further, note that it may be necessary to increase the number of
+available pty devices; see
+.BR pty (7)
+for details.
+
+Under Linux, full Unix 98 pty support requires that the
+.I devpts
+filesystem be mounted.
+
+If pty setup fails for any reason, an error message will be displayed
+and the job's console value will be reset to
+.BR none "."
+.RE
+.RE
+.sp 1
+.\"
+.RS
+.B output
+.RS
+If \fBoutput\fR is specified, the standard input, standard output and
+standard error file descriptors are connected to
+.IR /dev/console "."
+.RE
+.RE
+.sp 1
+.\"
+.RS
+.B owner
+.RS
+The \fBowner\fR value is special: it not only connects the job to the
+system console but sets the job to be the owner of the system console,
+which means it will receive certain signals from the kernel when special
+key combinations such as Control\-C are pressed.
+.RE
+.RE
+.\"
+.TP
+.B umask \fIUMASK
+A common configuration is to set the file mode creation mask for the
+process.
+.I UMASK
+should be an octal value for the mask, see
+.BR umask (2)
+for more details.
+.\"
+.TP
+.B nice \fINICE
+Another common configuration is to adjust the process's nice value,
+see
+.BR nice (1)
+for more details.
+.\"
+.TP
+.B oom score \fIADJUSTMENT\fR|\fBnever
+Normally the OOM killer regards all processes equally, this stanza
+advises the kernel to treat this job differently.
+
+.I ADJUSTMENT
+may be an integer value from
+.I -999
+(very unlikely to be killed by the OOM killer) up to
+.I 1000
+(very likely to be killed by the OOM killer).  It may also be the special
+value
+.B never
+to have the job ignored by the OOM killer entirely.
+.\"
+.TP
+.B chroot \fIDIR
+Runs the job's processes in a
+.BR chroot(8)
+environment underneath
+.I DIR
+
+Note that
+.I DIR
+must have all the necessary system libraries for the process to be run,
+often including
+.I /bin/sh
+.\"
+.TP
+.B chdir \fIDIR
+Runs the job's processes with a working directory of
+.I DIR
+instead of the root of the filesystem.
+.\"
+.TP
+.B limit \fILIMIT SOFT\fR|\fBunlimited \fIHARD\fR|\fBunlimited
+Sets initial system resource limits for the job's processes.
+.I LIMIT
+may be one of
+.IR core ,
+.IR cpu ,
+.IR data ,
+.IR fsize ,
+.IR memlock ,
+.IR msgqueue ,
+.IR nice ,
+.IR nofile ,
+.IR nproc ,
+.IR rss ,
+.IR rtprio ,
+.I sigpending
+or
+.IR stack .
+
+Limits are specified as both a
+.I SOFT
+value and a
+.I HARD
+value, both of which are integers.  The special value
+.B unlimited
+may be specified for either.
+.\"
+.TP
+.B setuid \fIUSERNAME
+Changes to the user
+.I USERNAME
+before running any job process.
+
+The job process will run with the primary group of user
+.I USERNAME
+unless the
+.B setgid
+stanza is also specified in which case that group will be used instead.
+
+For system jobs
+.BR initgroups (3)
+will be called to set up supplementary group access.
+
+Failure to determine and/or set user and group details will result in
+the overall job failing to start.
+
+If this stanza is unspecified, all job processes will run with user ID 0
+(root) in the case of system jobs, and as the user in the case of user
+jobs.
+
+Note that system jobs using the
+.B setuid
+stanza are still system jobs, and can not be controlled by an
+unprivileged user, even if the
+.B setuid
+stanza specifies that user.
+.\"
+.TP
+.B setgid \fIGROUPNAME
+Changes to the group
+.I GROUPNAME
+before running any job process.
+
+For system jobs
+.BR initgroups (3)
+will be called to set up supplementary group access.
+
+If this stanza is unspecified, the primary group of the user specified
+in the
+.B setuid
+block is used for all job processes. If both this and the
+.B setuid
+stanza are unspecified, all job processes will run with their group ID set
+to 0 (root) in the case of system jobs, and as the primary group of the
+user in the case of User Session jobs.
+.\"
+.TP
+.B cgroup \fICONTROLLER \fR[ \fINAME \fR] \fR[ \fIKEY VALUE \fR]
+Specify the control group all job processes will run in and optionally
+specify a setting for the particular cgroup.
+
+This stanza will be ignored if the version of Upstart is new
+enough to support cgroups but has been built without cgroup support.
+
+This stanza will also be ignored if the
+.BR init (8)
+daemon has had cgroup support disabled at boot time (see \fBinit\fR
+(8)).
+
+A job which specifies this stanza will not be started until both its
+.B start on
+condition is met
+.I and
+the address of the cgroup manager has been communicated to the
+.BR init (8)
+daemon using the
+.BR initctl (8)
+command
+.BR notify\-cgroup\-manager\-address "."
+
+If only
+the cgroup controller (such as \fImemory\fR, \fIcpuset\fR, \fIblkio\fR)
+is specified, a job-specific cgroup will be created and the job
+processes placed in it. The form of this cgroup is
+.sp
+.B upstart/$UPSTART_JOB
+.sp
+or if the job specifies the
+.B instance
+stanza the group will be the expanded value of:
+.sp
+.B upstart/$UPSTART_JOB-$UPSTART_INSTANCE
+.sp
+Any forward slashes in
+.B $UPSTART_JOB
+and
+.B $UPSTART_INSTANCE
+will be replaced with underscore (\(aq_\(aq) characters.
+
+This default cgroup for the job may be specified explicitly
+within a
+.B NAME
+using the special variable
+.BR $UPSTART_CGROUP "."
+This variable is
+.I not
+an environment variable and is only valid within the context of the
+.B cgroup
+stanza.
+
+If
+.B NAME
+is not specified or does not contain
+.BR $UPSTART_CGROUP ","
+the job processes will not be placed in an upstart-specific
+
+Note that this special variable cannot be specified with enclosing
+braces around the name.
+
+No validation is performed on the specified values until the job is due
+to be started.
+
+If the
+.B CONTROLLER
+is invalid, or the
+.B NAME
+cannot be created or the
+.B KEY
+or
+.B VALUE
+are invalid, the job will be failed.
+
+The
+.B NAME
+argument may contain any valid variable and can also contain forward
+slashes to run the job processes in a sub-cgroup.
+
+If any argument contains space characters, it must be quoted.
+
+If a
+.B KEY
+is specified, a
+.B VALUE
+must also be specified (even it is simply an empty string).
+
+The stanza maybe specified multiple times. The last occurence will be
+used except in the scenario where each occurence specifies a different
+.B KEY
+in which case all the keys and values will be applied.
+
+It is not an error if
+.B NAME
+already exists.
+
+Valid syntax:
+
+.RS
+
+Implicit NAME, no setting.
+.RS
+.nf
+.B cgroup CONTROLLER
+.fi
+.RE
+
+Explicit name, no setting.
+.RS
+.nf
+.B cgroup CONTROLLER NAME
+.fi
+.RE
+
+Implicit name with setting.
+.RS
+.nf
+.B cgroup CONTROLLER KEY VALUE
+.fi
+.RE
+
+Explicit name with setting.
+.RS
+.nf
+.B cgroup CONTROLLER NAME KEY VALUE
+.fi
+.RE
+
+.RE
+
+.RS
+Examples:
+
+.IP \[bu]
+Run all job processes in the default
+.B cpu
+cgroup controller group.
+.sp
+.RS
+.nf
+.B cgroup cpu
+.fi
+.RE
+
+.IP \[bu]
+As above.
+.sp
+.RS
+.nf
+.B cgroup cpu $UPSTART_CGROUP
+.fi
+.RE
+
+.IP \[bu]
+As above.
+.sp
+.RS
+.nf
+\fBcgroup cpu "$UPSTART_CGROUP"\fR
+.fi
+.RE
+
+.IP \[bu]
+Attempt to place the job processes in a non-job-specific
+cgroup.
+.sp
+.RS
+.nf
+\fBcgroup cpu "a-well-known-cgroup"\fR
+.fi
+.RE
+
+.IP \[bu]
+The job will only start once the manager is up and running and will have
+a 50MB memory limit, be restricted to CPU ids 0 and 1 and have a 1MB/s
+write limit to the block device 8:16. The job will fail to start if the
+system has less than 50MB of RAM or less than 2 CPUs.
+.sp
+.RS
+.nf
+.B cgroup memory $UPSTART_CGROUP limit_in_bytes 52428800
+.B cgroup cpuset $UPSTART_CGROUP cpus 0-1
+\fBcgroup blkio slowio throttle.write_bps_device "8:16 1048576"\fR
+.fi
+.RE
+
+.RE
+
+.\"
+.SS Override File Handling
+Override files allow a jobs environment to be changed without modifying
+the jobs configuration file. Rules governing override files:
+
+.IP \[bu] 2
+If a job is embodied with only a configuration file, the contents of
+this file define the job.
+.IP \[bu]
+If an override files exists where there is no existing cofiguration
+file, the override file is ignored.
+.IP \[bu]
+If both a configuration file \fBand\fP an override file exist for a job
+and both files are syntactically correct:
+.RS
+.IP \[bu] 2
+stanzas in the override file will take precedence over stanzas present
+in the corresponding configuration file.
+.IP \[bu]
+stanzas in the override file which are not present in the corresponding
+configuration file will be honoured when the job runs.
+.RE
+.IP \[bu]
+If both a configuration file and an override file exist for a job and
+subsequently the override file is deleted, the configuration file is
+automatically reloaded with the effect that any changes introduced by
+the override file are undone and the configuration file alone now defines
+the job.
+.IP \[bu]
+If both a configuration file and an override file exist for a job and
+subsequently the configuration file is deleted, a new instance of the
+job can no longer be started (since without a corresponding
+configuration file an override file is ignored).
+.IP \[bu]
+If both a configuration file and an override file exist for a job and
+any of the contents of the override file are invalid, the override file
+is ignored and only the contents of the configuration file are
+considered.
+.P
+
+.\"
+.SS AppArmor support
+Upstart provides several stanzas for loading and switching to different
+AppArmor profiles. If AppArmor isn't enabled in the currently running
+kernel, the stanzas will be silently ignored.
+
+.TP
+.B apparmor load \fIPROFILE
+This stanza specifies an AppArmor profile to load into the Linux kernel at
+job start. The AppArmor profile will confine a main process automatically
+using path attachment, or manually by using the \fBapparmor switch\fP
+stanza.
+.I PROFILE
+must be an absolute path to a profile and a failure will occur if the file
+doesn't exist.
+
+.nf
+apparmor load /etc/apparmor.d/usr.sbin.cupsd
+.fi
+.\"
+.TP
+.B apparmor switch \fINAME
+This stanza specifies the name of an AppArmor profile name to switch to
+before running the main process.
+.I NAME
+must be the name of a profile already loaded into the running Linux kernel,
+and will result in a failure if not available.
+
+.nf
+apparmor switch /usr/sbin/cupsd
+.fi
+.\"
+.SS Miscellaneous
+.TP
+.B kill signal \fISIGNAL
+Specifies the stopping signal, 
+.I SIGTERM
+by default, a job's main process will receive when stopping the
+running job. The signal should be specified as a full name (for example
+"\fISIGTERM\fP") or a partial name (for example "\fITERM\fP"). Note
+that it is possible to specify the signal as a number (for example
+"\fI15\fP") although this should be avoided if at all possible since
+signal numbers may differ between systems.
+
+.nf
+kill signal INT
+.fi
+.\"
+.TP
+.B reload signal \fISIGNAL
+Specifies the reload signal,
+.I SIGHUP
+by default, a job's main process will receive when reloading the
+running job. The signal should be specified as a full name (for example
+"\fISIGHUP\fP") or a partial name (for example "\fIHUP\fP"). Note
+that it is possible to specify the signal as a number (for example
+"\fI1\fP") although this should be avoided if at all possible since
+signal numbers may differ between systems.
+
+.nf
+reload signal USR1
+.fi
+.\"
+.TP
+.B kill timeout \fIINTERVAL
+Specifies the interval between sending the job's main process the
+"stopping" (see above) and
+.I SIGKILL
+signals when stopping the running job. Default is 5 seconds.
+.\"
+.TP
+.B expect stop
+Specifies that the job's main process will raise the
+.I SIGSTOP
+signal to indicate that it is ready.
+.BR init (8)
+will wait for this signal before running the job's post\-start script,
+or considering the job to be running.
+
+.BR init (8)
+will send the process the
+.I SIGCONT
+signal to allow it to continue.
+.\"
+.TP
+.B expect daemon
+Specifies that the job's main process is a daemon, and will fork twice
+after being run.
+.BR init (8)
+will follow this daemonisation, and will wait for this to occur before
+running the job's post\-start script or considering the job to be running.
+
+Without this stanza
+.BR init (8)
+is unable to supervise daemon processes and will believe them to have
+stopped as soon as they daemonise on startup.
+.\"
+.TP
+.B expect fork
+Specifies that the job's main process will fork once after being run.
+.BR init (8)
+will follow this fork, and will wait for this to occur before
+running the job's post\-start script or considering the job to be running.
+
+Without this stanza
+.BR init (8)
+is unable to supervise forking processes and will believe them to have
+stopped as soon as they fork on startup.
+.\"
+.SH RESTRICTIONS
+The use of symbolic links in job configuration file directories is not
+supported since it can lead to unpredictable behaviour resulting from
+broken or inaccessible links (such as would be caused by a link crossing
+a filesystem boundary to a filesystem that has not yet been mounted).
+.\"
+.SH BUGS
+The 
+.B and
+and 
+.B or
+operators allowed with
+.B start on
+and
+.B stop on
+do not work intuitively: operands to the right of either operator are
+only evaluated once and state information is then discarded. This can
+lead to jobs with complex \fBstart on\fP or \fPstop on\fP conditions
+not behaving as expected \fIwhen restarted\fP. For example, if a job
+encodes the following condition:
+.sp 1
+.RS
+.nf
+start on A and (B or C)
+.fi
+.RE
+.P
+When \(aqA\(aq and \(aqB\(aq become true, the condition is satisfied so
+the job will be run. However, if the job ends and subsequently \(aqA\(aq
+and \(aqC\(aq become true, the job will \fInot\fP be re\-run even though
+the condtion is satisfied.  Avoid using complex conditions with jobs
+which need to be restarted.
+.\"
+.SH FILES
+.
+.TP
+.I /etc/init/*.conf
+System job configuration files.
+.
+.TP
+.I /etc/init/*.override
+System job override files.
+.
+.TP
+.I $HOME/.init/*.conf
+User job configuration files
+.BR (deprecated) .
+.
+.TP
+.I $HOME/.init/*.override
+User job override files.
+.BR (deprecated) .
+.
+.TP
+.I $XDG_CONFIG_HOME/upstart/*.conf
+User session job configuration files. See
+.B User Session Mode
+for other locations.
+.
+.TP
+.I $XDG_CONFIG_HOME/upstart/*.override
+User session job override files. See
+.B User Session Mode
+for other locations.
+.
+.TP
+.I /var/log/upstart/*.log
+Default location of system job output logs.
+.
+.TP
+.I $XDG_CACHE_HOME/upstart/*.log
+Default location of user session job output logs.
+.TP
+.I $XDG_RUNTIME_DIR/upstart/sessions/*.session
+Location of session files created when running in User Session mode.
+.RE
+.\"
+.SH AUTHOR
+Manual page written by Scott James Remnant
+.RB < scott@netsplit.com >
+and James Hunt
+.RB < james.hunt@canonical.com > .
+.\"
+.SH REPORTING BUGS
+Report bugs at
+.RB < https://launchpad.net/upstart/+bugs >
+.\"
+.SH COPYRIGHT
+Copyright \(co 2009-2013 Canonical Ltd.
+.br
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+.\"
+.SH SEE ALSO
+
+.BR apparmor (7),
+.BR cgmanager (8),
+.BR init (8),
+.BR initctl (8),
+.BR prctl (2),
+.BR pty (7),
+.BR sh (1).

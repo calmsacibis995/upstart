@@ -1,0 +1,139 @@
+2011-05-12  Marc - A. Dahlhaus  <mad@wol.de>
+
+	* POTFILES.in: Add errors.h
+
+2011-03-16  Scott James Remnant  <scott@netsplit.com>
+
+	* Makevars.template (COPYRIGHT_HOLDER): Update copyright.
+
+2010-02-03  Scott James Remnant  <scott@netsplit.com>
+
+	* upstart.pot: Actually include the pot file
+
+	* POTFILES.in: Remove files that come from libnih.
+
+2009-06-17  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Update from libnih, don't include generated output
+
+2009-02-20  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Update path to nih-dbus-tool
+
+2009-01-29  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Update D-Bus paths
+
+2008-06-11  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Put the auto-generated files back in now we're
+	figured out how to do it.
+
+2008-06-08  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Remove the auto-generated ones again, grr @ distcheck
+
+	* POTFILES.in: Update.
+
+2008-05-01  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Update with all the recent file changes.
+
+2008-03-19  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Remove init/enum.c and add init/control.c
+
+2008-03-07  Scott James Remnant  <scott@netsplit.com>
+
+	* ca.po, fr.po, sv.po: Remove, abandoning Rosetta for translations
+	for the time being since the workflow doesn't help me get updated
+	translations into releases.  Please provide translations by hand
+	based on an upstart.pot file generated in trunk.
+	* LINGUAS: Remove.
+
+2008-03-01  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Add init/environ.c
+
+2007-11-30  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Update for recent changes (ie. the dropping of
+	libupstart)
+
+2007-06-13  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Add init/parse_conf.c
+
+2007-06-10  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Add init/conf.c
+
+2007-06-04  Michael Biebl  <mbiebl@gmail.com>
+
+	* POTFILES.in: Remove init/cfgfile.c; add init/parse_job.c
+
+2007-03-09  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Add nih/tree.c; remove util/events.c and util/jobs.c
+
+2007-02-05  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Add nih/config.c, nih/watch.c; rename upstart/job.c
+	to upstart/enum.c; add init/notify.c; add util/events.c and util/jobs.c
+
+2007-01-06  Scott James Remnant  <scott@netsplit.com>
+
+	* ca.po, fr.po, sv.po: Update line numbers.
+
+	* POTFILES.in: Add nih/command.c, remove upstart/control.c and
+	replace with upstart/message.c and upstart/wire.c
+
+2006-12-14  Scott James Remnant  <scott@netsplit.com>
+
+	* LINGUAS: Include the en@quot and en@boldquot translation files
+	as suggested by the manual, these seem to be generated correctly.
+
+	* ca.po, fr.po, sv.po: Download translations from Rosetta.
+	* LINGUAS: Update to include new languages.
+
+2006-10-17  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Update initctl sources.
+
+2006-09-27  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Update with everything moving around
+
+2006-08-31  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Add new sources from util and compat/sysv directories.
+
+2006-08-24  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: Add nih/file.c and nih/option.c,
+	add init/cfgfile.c	
+
+2006-08-19  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: add util/initctl.c
+
+2006-08-18  Scott James Remnant  <scott@netsplit.com>
+
+	* POTFILES.in: nih/errors.h and upstart/errors.h have strings
+	marked for translation.
+
+	* POTFILES.in: Add the list of current source files.
+
+2006-07-13  Scott James Remnant  <scott@netsplit.com>
+
+	* Makevars (COPYRIGHT_HOLDER): Change to Canonical Ltd.
+	(MSGID_BUGS_ADDRESS): Change to Launchpad.
+
+2006-05-14  Scott James Remnant  <scott@netsplit.com>
+
+	* LINGUAS: Created file to hold language list once we have some
+	translations.
+	* POTFILES.in: Created file to hold list of source files which
+	contain translations.
+	* Makevars: Created file from Makevars.template and filled in fields.
+	* ChangeLog: Initial gettext infrastructure from gettext 0.14.5.

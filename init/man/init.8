@@ -1,0 +1,506 @@
+'\" t
+.TH init 8 2014-05-09 "Upstart"
+.\"
+.SH NAME
+init \- Upstart process management daemon
+.\"
+.SH SYNOPSIS
+.B init
+.RI [ OPTION ]...
+.\"
+.SH DESCRIPTION
+.B init
+is the parent of all processes on the system, it is executed by the kernel
+and is responsible for starting all other processes; it is the parent of
+all processes whose natural parents have died and it is responsible for
+reaping those when they die.
+
+Processes managed by
+.B init
+are known as jobs and are defined by files in the
+.I /etc/init
+directory.  See
+.BR init (5)
+for more details on configuring Upstart.
+.\"
+.SS Events
+.BR init (8)
+is an event-based init daemon.  This means that jobs will be automatically
+started and stopped by changes that occur to the system state, including
+as a result of jobs starting and stopping.
+
+This is different to dependency-based init daemons which start a specified
+set of goal jobs, and resolve the order in which they should be started and
+other jobs required by iterating their dependencies.
+
+For more information on starting and stopping jobs, as well as emitting
+events that will automatically start and stop jobs, see the manual page for
+the
+.BR initctl (8)
+tool.
+
+The primary event is the
+.BR startup (7)
+event, emitted when the daemon has finished loading its configuration.
+Other useful events are the
+.BR starting (7),
+.BR started (7),
+.BR stopping (7)
+and
+.BR stopped (7)
+events emitted as jobs change state.
+.\"
+.SS Job States
+.P
+\fBTable 1: Job Goals and State Transitions.\fP
+.TS
+box,tab(@);
+c | c s
+c | c s
+c | c | c
+c | l l.
+              @Goal
+              @_
+Current State @start @ stop
+=
+waiting       @ starting    @ n/a
+starting      @ pre\-start  @ stopping
+pre\-start    @ spawned     @ stopping
+spawned       @ post\-start @ stopping
+post\-start   @ running     @ stopping
+running       @ stopping    @ pre\-stop / stopping (*)
+pre\-stop     @ running     @ stopping
+stopping      @ killed      @ killed
+killed        @ post\-stop  @ post\-stop
+post\-stop    @ starting    @ waiting
+.TE
+.po \n[old_po]
+.in \n[old_in]
+.P
+Key:
+  (*) If there is a \fBscript\fP or \fBexec\fP section and this process is running,
+  state will be \(aqpre\-stop\(aq, else it will be \(aqstopping\(aq.
+
+.\" ------------------------------------------------------------
+.SS Job Lifecycle
+.\"
+.IP "Starting a Job"
+.nr step 1 1
+.IP \n[step] 3
+Initially the job is "at rest" with a goal of \(aqstop\(aq
+and a state of \(aqwaiting\(aq (shown as \(aqstop/waiting\(aq by the
+.BR initctl (8)
+.B list
+and
+.B status
+commands).
+.\"
+.IP \n+[step] 3
+The goal is changed from \(aqstop\(aq to
+\(aqstart\(aq indicating the job is attempting to start.
+.\"
+.IP \n+[step] 3
+The state is changed from \(aqwaiting\(aq to
+\(aqstarting\(aq.
+.\"
+.IP \n+[step] 3
+The \fBstarting\fP(7) event is emitted denoting the job is
+"about to start".
+.\"
+.IP \n+[step] 3
+Any jobs whose \(aqstart on\(aq (or \(aqstop on\(aq) condition would be satisfied
+by this job starting are started (or stopped respectively).
+.\"
+.IP \n+[step] 3
+The \fBstarting\fP(7) event completes.
+.\"
+.IP \n+[step] 3
+The state is changed from \(aqstarting\(aq to \(aqpre\-start\(aq.
+.\"
+.IP \n+[step] 3
+If the \fBpre\-start\fP stanza exists, the pre\-start process is
+spawned.
+.\"
+.IP \n+[step] 3
+If the pre\-start process fails, the goal is changed from
+\(aqstart\(aq to \(aqstop\(aq, and the
+.BR stopping(7)
+and
+.BR stopped(7)
+events are emitted with appropriate variables set denoting the error.
+.\"
+.IP \n+[step] 3
+Assuming the pre\-start did not fail or did not call "stop", the main
+process is spawned.
+.\"
+.IP \n+[step] 3
+The state is changed from \(aqpre\-start\(aq to \(aqspawned\(aq.
+.\"
+.IP \n+[step] 3
+Upstart then ascertains the \fIfinal\fP PID for the job which may be a
+descendent of the immediate child process if \fBexpect fork\fP or
+\fBexpect daemon\fP has been specified.
+.\"
+.IP \n+[step] 3
+The state is changed from \(aqspawned\(aq to \(aqpost\-start\(aq.
+.\"
+.IP \n+[step] 3
+If the \fBpost\-start\fP stanza exists, the post\-start process is
+spawned.
+.\"
+.IP \n+[step] 3
+The state is changed from \(aqpost\-start\(aq to \(aqrunning\(aq.
+.\"
+.IP \n+[step] 3
+The \fBstarted\fP(7) event is emitted.
+.sp 1
+For services, when this event completes the main process will now be fully
+running. If the job refers to a task, it will now have completed
+(successfully or otherwise).
+.\"
+.IP \n+[step] 3
+Any jobs whose \(aqstart on\(aq (or \(aqstop on\(aq) condition would be satisfied
+by this job being started are started (or stopped respectively).
+.\"
+.IP "Stopping a Job"
+.nr step 1 1
+.IP \n[step] 3
+Assuming the job is fully running, it will have a goal of \(aqstart\(aq
+and a state of \(aqrunning\(aq (shown as \(aqstart/running\(aq by the
+.BR initctl (8)
+.B list
+and
+.B status
+commands).
+.\"
+.IP \n+[step] 3
+The goal is changed from \(aqstart\(aq to \(aqstop\(aq indicating the
+job is attempting to stop.
+.\"
+.IP \n+[step] 3
+The state is changed from \(aqrunning\(aq to
+\(aqpre\-stop\(aq.
+.\"
+.IP \n+[step] 3
+If the \fBpre\-stop\fP stanza exists, the pre\-stop process is
+spawned.
+.\"
+.IP \n+[step] 3
+The state is changed from \(aqpre\-stop\(aq to \(aqstopping\(aq.
+.\"
+.IP \n+[step] 3
+The \fBstopping\fP(7) event is emitted.
+.\"
+.IP \n+[step] 3
+Any jobs whose \(aqstart on\(aq (or \(aqstop on\(aq) condition would be satisfied by this
+job stopping are started (or stopped respectively).
+.\"
+.IP \n+[step] 3
+The main process is stopped:
+.RS
+.nr step2 1 1
+.af step2 i
+.IP \n[step2] 3
+The signal specified by the
+.B kill signal
+stanza is sent to the process group of the main process
+(such that all processes belonging to the jobs main process are killed).
+By default this signal is
+.BR SIGTERM "."
+.sp 1
+See \fBsignal\fP(7) and \fBinit\fP(5).
+.IP \n+[step2] 3
+Upstart waits for up to "kill timeout" seconds (default 5 seconds) for
+the process to end.
+.IP \n+[step2] 3
+If the process is still running after the timeout, a
+.B SIGKILL
+signal is sent to the process which cannot be ignored and will forcibly
+stop the processes in the process group.
+.RE
+.\"
+.IP \n+[step] 3
+The state is changed from \(aqkilled\(aq to \(aqpost\-stop\(aq.
+.\"
+.IP \n+[step] 3
+If the \fBpost\-stop\fP stanza exists, the post\-stop process is
+spawned.
+.\"
+.IP \n+[step] 3
+The state is changed from \(aqpost\-stop\(aq to \(aqwaiting\(aq.
+.\"
+.IP \n+[step] 3
+The \fBstopped\fP(7) event is emitted.
+.sp 1
+When this event completes, the job is fully stopped.
+.\"
+.IP \n+[step] 3
+Any jobs whose \(aqstart on\(aq (or \(aqstop on\(aq) condition would be satisfied
+by this job being stopped are started (or stopped respectively).
+.\"
+.SS System V compatibility
+The Upstart
+.BR init (8)
+daemon does not keep track of runlevels itself, instead they are implemented
+entirely by its userspace tools.  The event emitted to signify a change
+of runlevel is the
+.BR runlevel (7)
+event.  For more information see its manual page.
+.\"
+.SH OPTIONS
+Options are passed to
+.BR init (8)
+by placing them on the kernel command-line.
+.\"
+.TP
+.B \-\-append-confdir \fIdirectory\fP
+Add the specified directory to the default directory or directories
+that job configuration files will be read from. This option may be
+specified multiple times which will result in job configuration files
+being loaded from each directory specified (which must exist).
+Directories will be searched for jobs in the specified order after the
+default directories have been searched.
+
+Note that if this option is used in combination with
+.BR \-\-confdir ","
+or
+.BR \-\-prepend\-confdir ","
+regardless of the order of the options on the command-line, the append
+directories will be added
+.I after
+the other directories.
+.\"
+.TP
+.B \-\-confdir \fIdirectory\fP
+Read job configuration files from a directory other than the default
+(\fI/etc/init\fP for process ID 1). This option may be specified
+multiple times which will result in job configuration files being
+loaded from each directory specified (which must exist). Directories
+will be searched for jobs in the specified order.
+
+In the case that multiple directories specify a job of the same name,
+the first job encountered will be honoured.
+
+See section
+.B User Session Mode
+in
+.BR init (5)
+for the ordered list of default configuration directories a
+Session Init will consider.
+
+.\"
+.TP
+.B \-\-default-console \fIvalue\fP
+Default value for jobs that do not specify a \(aq\fBconsole\fR\(aq
+stanza. This could be used for example to set the default to
+\(aq\fBnone\fR\(aq but still honour jobs that specify explicitly
+\(aq\fBconsole log\fR\(aq. See
+.BR init (5)
+for all possible values of
+.BR console "."
+.\"
+.TP
+.B \-\-no-cgroups
+Do not honour the
+.B cgroup
+stanza. If specified, this stanza will be ignored for any job which
+specifies it: the job processes will
+.I not
+be placed in the cgroup specified by the stanza and the job itself will
+not wait until the cgroup manager has started before starting itself.
+See
+.BR init (5)
+for further details.
+.\"
+.TP
+.B \-\-no\-dbus
+Do not connect to a D-Bus bus.
+.\"
+.TP
+.B \-\-no\-inherit\-env
+Stop jobs from inheriting the initial environment. Only meaningful when
+running in user mode.
+.\"
+.TP
+.B \-\-logdir \fIdirectory\fP
+Write job output log files to a directory other than
+\fI/var/log/upstart\fP (system mode) or \fI$XDG_CACHE_HOME/upstart\fP
+(user session mode).
+.\"
+.TP
+.B \-\-no\-log
+Disable logging of job output. Note that jobs specifying \(aq\fBconsole
+log\fR\(aq will be treated as if they had specified
+\(aq\fBconsole none\fR\(aq.
+See 
+.BR init (5)
+for further details.
+.\"
+.TP
+.B \-\-no\-sessions
+Disable chroot sessions.
+.\"
+.TP
+.B \-\-no\-startup\-event
+Suppress emission of the initial startup event. This option should only
+be used for testing since it will stop the 
+.BR init (8)
+daemon from starting \fBany\fP jobs automatically.
+.\"
+.TP
+.B \-\-prepend-confdir \fIdirectory\fP
+Add the specified directory to the directory or directories
+that job configuration files will be read from. This option may be
+specified multiple times which will result in job configuration files
+being loaded from each directory specified (which must exist).
+Directories will be searched for jobs in the specified order before the
+default directories have been searched.
+
+Note that if this option is used in combination with
+.BR \-\-confdir ","
+or
+.BR \-\-append\-confdir ","
+regardless of the order of the options on the command-line, the prepend
+directories will be added
+.I before 
+the other directories.
+.\"
+.TP
+.B \-\-session
+Connect to the D\-Bus session bus. This should only be used for testing.
+.\"
+.TP
+.B \-\-startup-event \fIevent\fP
+Specify a different initial startup event from the standard
+.BR startup (7) .
+.\"
+.TP
+.B \-\-user
+Starts in user mode, as used for user sessions. Upstart will be run as
+an unprivileged user, reading configuration files from configuration
+locations as per roughly XDG Base Directory Specification. See 
+.BR init (5)
+for further details.
+.\"
+.TP
+.B \-q, \-\-quiet
+Reduces output messages to errors only.
+.\"
+.TP
+.B \-v, \-\-verbose
+Outputs verbose messages about job state changes and event emissions to the
+system console or log, useful for debugging boot.
+.\"
+.TP
+.B \-\-version
+Outputs version information and exits.
+.\"
+.SH NOTES
+.B init
+is not normally executed by a user process, and expects to have a process
+id of 1.  If this is not the case, it will actually execute
+.BR telinit (8)
+and pass all arguments to that.  See that manual page for further
+details. However, if the
+.B \-\-user
+option is specified, it will run as a
+.B Session Init
+and read alternative configuration files and manage the individual user
+session in a similar fashion.
+
+Sending a Session Init a
+.I SIGTERM
+signal is taken as a request to shutdown due to an impending system
+shutdown. In this scenario, the
+Session Init will emit the 
+.B session\-end
+event and  request all running jobs stop. It will attempt to honour jobs
+.B kill timeout
+values (see
+.BR init (5)
+for further details). Note however that system policy will prevail: if
+jobs request timeout values longer than the system policy allows for
+complete system shutdown, it will not be possible to honour them before
+the Session Init is killed by the system.
+.\"
+.SH ENVIRONMENT VARIABLES
+
+When run as a user process, the following variables may be used to find
+job configuration files:
+
+.IP \(bu 4
+.I $XDG_CONFIG_HOME
+.IP \(bu 4
+.I $XDG_CONFIG_DIRS
+.P
+
+See
+.B User Session Mode
+in
+.BR init (5)
+for further details.
+
+.\"
+.SH FILES
+.\"
+.I /etc/init.conf
+
+.I /etc/init/
+
+.I $HOME/.init/
+
+.I $XDG_CONFIG_DIRS/upstart/
+
+.I $XDG_CONFIG_HOME/upstart/
+.\"
+.SH AUTHOR
+Written by Scott James Remnant
+.RB < scott@netsplit.com >
+.\"
+.SH REPORTING BUGS
+Report bugs at
+.RB < https://launchpad.net/upstart/+bugs >
+.\"
+.SH COPYRIGHT
+Copyright \(co 2009\-2013 Canonical Ltd.
+.br
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+.\"
+.SH SEE ALSO
+
+.BR all\-swaps (7),
+.BR control\-alt\-delete (7),
+.BR dbus\-daemon (1),
+.BR dbus\-event (7),
+.BR dconf\-event (7),
+.BR file\-event (7),
+.BR filesystem (7),
+.BR init (5),
+.BR init (8),
+.BR initctl (8),
+.BR keyboard\-request (7),
+.BR local\-filesystems (7),
+.BR mountall (8),
+.BR mounted (7),
+.BR mounting (7),
+.BR power\-status\-changed (7),
+.BR remote\-filesystems (7),
+.BR runlevel (7),
+.BR shutdown (8),
+.BR socket\-event (7),
+.BR started (7),
+.BR starting (7),
+.BR startup (7),
+.BR stopped (7),
+.BR stopping (7),
+.BR telinit (8),
+.BR upstart\-dbus\-bridge (8),
+.BR upstart\-dconf\-bridge (8),
+.BR upstart\-event\-bridge (8),
+.BR upstart\-events (7),
+.BR upstart\-file\-bridge (8),
+.BR upstart\-local\-bridge (8),
+.BR upstart\-socket\-bridge (8),
+.BR upstart\-udev\-bridge (8),
+.BR virtual\-filesystems (7).
