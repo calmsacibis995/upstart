@@ -2,6 +2,8 @@
  *
  * Copyright  2009-2011 Canonical Ltd.
  * Author: Scott James Remnant <scott@netsplit.com>.
+ * 
+ * Portions Copyright (c) 2022 Stefanos Stefanidis.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2, as
@@ -29,6 +31,7 @@
 #include <sys/reboot.h>
 #include <sys/resource.h>
 #include <sys/mount.h>
+#include <sys/sysmacros.h>
 
 #ifdef HAVE_SYS_PRCTL_H
 #include <sys/prctl.h>
