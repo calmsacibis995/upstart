@@ -4,6 +4,8 @@
  *
  * Copyright © 2010 Canonical Ltd.
  * Author: Scott James Remnant <scott@netsplit.com>.
+ * 
+ * Portions Copyright (c) 2022 Stefanos Stefanidis.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2, as
@@ -27,6 +29,7 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/mount.h>
+#include <sys/sysmacros.h>
 
 #include <fcntl.h>
 #include <signal.h>
